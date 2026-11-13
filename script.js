@@ -1,107 +1,166 @@
-:root {
-  --bg: #1d2b2a;
-  --body: #2a3d3b;
-  --screen: #c9d8c5;
-  --screen-ink: #1d2b2a;
-  --key: #f1efe7;
-  --key-ink: #1d2b2a;
-  --fn: #e0b44c;
-  --op: #4f7f77;
-  --equals: #d9553f;
-  --light: #ffffff;
+// Calculator logic. No eval(): the maths is done with our own code.
+// Bottom line = what you type (e.g. 1+2+6+7). Top line = the answer after "=".
+
+const typedEl = document.getElementById("expression");
+const resultEl = document.getElementById("result");
+
+const OPS = ["+", "−", "×", "÷"];
+const MAX_LENGTH = 40;
+
+let expr = "";            // everything the user has typed, as text
+let justEvaluated = false;
+let hasError = false;
+
+function render() {
+  typedEl.textContent = expr === "" ? "0" : expr;
+  typedEl.scrollLeft = typedEl.scrollWidth; // keep the newest characters visible
 }
 
-* { box-sizing: border-box; margin: 0; padding: 0; }
-
-body {
-  min-height: 100vh;
-  display: grid;
-  place-items: center;
-  padding: 10px;
-  background: var(--bg);
-  font-family: "Trebuchet MS", "Segoe UI", system-ui, sans-serif;
+function showResult(text, isError) {
+  resultEl.textContent = text;
+  resultEl.classList.toggle("error", Boolean(isError));
 }
 
-.calculator {
-  width: 100%;
-  max-width: 460px;
-  padding: 20px;
-  background: var(--body);
-  border-radius: 22px;
-  box-shadow: 0 18px 40px rgba(0, 0, 0, 0.4);
+function clearResult() {
+  showResult("", false);
+  justEvaluated = false;
+  hasError = false;
 }
 
-.screen {
-  height: 130px;
-  margin-bottom: 18px;
-  padding: 12px 14px;
-  display: flex;
-  flex-direction: column;
-  justify-content: space-between;
-  align-items: flex-end;
-  background: var(--screen);
-  color: var(--screen-ink);
-  border-radius: 10px;
-  overflow: hidden;
+function lastChar() { return expr.slice(-1); }
+function isOp(ch) { return OPS.includes(ch); }
+
+// the number currently being typed (text after the last operator)
+function currentNumber() {
+  let i = expr.length;
+  while (i > 0 && !isOp(expr[i - 1])) i--;
+  return expr.slice(i);
 }
 
-.result {
-  min-height: 28px;
-  max-width: 100%;
-  font-family: "Courier New", monospace;
-  font-size: 1.7rem;
-  font-weight: 700;
-  white-space: nowrap;
-  overflow: hidden;
+function inputNumber(digit) {
+  if (justEvaluated) { expr = ""; }   // start a fresh sum after an answer
+  clearResult();
+  if (expr.length >= MAX_LENGTH) return;
+  if (currentNumber() === "0") expr = expr.slice(0, -1); // avoid 007
+  expr += digit;
+  render();
 }
 
-.result.error { color: var(--equals); font-size: 1.1rem; }
-
-.typed {
-  max-width: 100%;
-  font-family: "Courier New", monospace;
-  font-size: 2.1rem;
-  white-space: nowrap;
-  overflow: hidden;
+function inputDecimal() {
+  if (justEvaluated) { expr = ""; }
+  clearResult();
+  if (expr.length >= MAX_LENGTH) return;
+  const num = currentNumber();
+  if (num.includes(".")) return;      // only one dot per number
+  expr += num === "" ? "0." : ".";
+  render();
 }
 
-/* CSS Grid for the button layout */
-.keys {
-  display: grid;
-  grid-template-columns: repeat(4, 1fr);
-  gap: 12px;
+function inputOperator(op) {
+  if (justEvaluated) {
+    // continue from the answer: 16 then × 2
+    expr = resultEl.textContent.replace("-", "−");
+  }
+  clearResult();
+  if (expr === "") {
+    if (op === "−") { expr = "−"; render(); }  // allow a negative first number
+    return;
+  }
+  if (expr === "−") return;
+  if (isOp(lastChar())) expr = expr.slice(0, -1) + op; // change your mind
+  else if (expr.length < MAX_LENGTH) expr += op;
+  render();
 }
 
-.key {
-  padding: 22px 0;
-  font-size: 1.5rem;
-  font-weight: 700;
-  font-family: inherit;
-  color: var(--key-ink);
-  background: var(--key);
-  border: none;
-  border-radius: 12px;
-  box-shadow: 0 4px 0 rgba(0, 0, 0, 0.3);
-  cursor: pointer;
-  transition: transform 0.08s, box-shadow 0.08s;
+function backspace() {
+  // after "=", the sum stays on the bottom line so you can fix a mistake
+  clearResult();
+  expr = expr.slice(0, -1);
+  render();
 }
 
-.key:active { transform: translateY(3px); box-shadow: 0 1px 0 rgba(0, 0, 0, 0.3); }
-.key:focus-visible { outline: 3px solid var(--light); outline-offset: 2px; }
-
-.fn { background: var(--fn); }
-.op { background: var(--op); color: var(--light); }
-.op.active { outline: 3px solid var(--light); }
-
-.equals {
-  grid-column: 4;
-  grid-row: 4 / span 2;
-  background: var(--equals);
-  color: var(--light);
+function clearAll() {
+  expr = "";
+  clearResult();
+  showResult("", false);
+  render();
 }
 
-.zero { grid-column: 1 / span 2; }
-
-@media (prefers-reduced-motion: reduce) {
-  .key { transition: none; }
+// Turn "1+2×3" into numbers and operators: [1, "+", 2, "×", 3]
+function tokenize(text) {
+  const tokens = [];
+  let buffer = "";
+  for (const ch of text) {
+    if (isOp(ch)) {
+      if (buffer === "" && tokens.length === 0 && ch === "−") buffer = "-";
+      else { tokens.push(parseFloat(buffer), ch); buffer = ""; }
+    } else buffer += ch;
+  }
+  tokens.push(parseFloat(buffer));
+  return tokens;
 }
+
+// Order of operations: × and ÷ first, then + and −
+function calculate(list) {
+  const first = [];
+  for (let i = 0; i < list.length; i++) {
+    const t = list[i];
+    if (t === "×" || t === "÷") {
+      const left = first.pop();
+      const right = list[++i];
+      if (t === "÷" && right === 0) return null; // division by zero
+      first.push(t === "×" ? left * right : left / right);
+    } else first.push(t);
+  }
+  let result = first[0];
+  for (let i = 1; i < first.length; i += 2) {
+    const right = first[i + 1];
+    result = first[i] === "+" ? result + right : result - right;
+  }
+  return result;
+}
+
+function equals() {
+  if (expr === "" || justEvaluated) return;
+  // ignore a trailing operator, e.g. "5+" is treated as "5"
+  while (isOp(lastChar())) expr = expr.slice(0, -1);
+  if (expr === "" || expr === "−") { expr = ""; render(); return; }
+  render();
+
+  const result = calculate(tokenize(expr));
+  if (result === null) {
+    hasError = true;
+    showResult("Cannot divide by 0", true);
+    return;
+  }
+  // round off floating point noise like 0.1 + 0.2
+  showResult(String(parseFloat(result.toFixed(10))), false);
+  justEvaluated = true;
+}
+
+// Event listeners (no inline onclick in the HTML)
+document.querySelectorAll("[data-num]").forEach((btn) =>
+  btn.addEventListener("click", () => inputNumber(btn.dataset.num))
+);
+document.querySelectorAll("[data-op]").forEach((btn) =>
+  btn.addEventListener("click", () => inputOperator(btn.dataset.op))
+);
+document.getElementById("decimal").addEventListener("click", inputDecimal);
+document.getElementById("equals").addEventListener("click", equals);
+document.getElementById("backspace").addEventListener("click", backspace);
+document.getElementById("clear").addEventListener("click", clearAll);
+
+// Keyboard support (bonus)
+document.addEventListener("keydown", (e) => {
+  if (e.key >= "0" && e.key <= "9") inputNumber(e.key);
+  else if (e.key === ".") inputDecimal();
+  else if (e.key === "+") inputOperator("+");
+  else if (e.key === "-") inputOperator("−");
+  else if (e.key === "*") inputOperator("×");
+  else if (e.key === "/") { e.preventDefault(); inputOperator("÷"); }
+  else if (e.key === "Enter" || e.key === "=") equals();
+  else if (e.key === "Backspace") backspace();
+  else if (e.key === "Escape") clearAll();
+});
+
+render();
